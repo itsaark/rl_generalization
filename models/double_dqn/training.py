@@ -11,6 +11,11 @@ from torch.optim import Adam
 np.random.seed(7)
 random.seed(7)
 
+if torch.cuda.is_available():
+    device = torch.device("cuda:0")
+else:
+    device = torch.device("cpu")
+
 #hyperparameters
 lr = 0
 batch_size = 10
@@ -75,8 +80,8 @@ class ReplayMemory():
 
 
 r_memory = ReplayMemory(memory_size)
-agent = DQN(12,12,16)
-target = DQN(12,12,16)
+agent = DQN(12,12,16).to(device)
+target = DQN(12,12,16).to(device)
 target.load_state_dict(agent.state_dict())
 optimizer = Adam(agent.parameters())
 
@@ -86,9 +91,9 @@ def update_target():
     observation, action, reward, observation_next, done = r_memory.sample(batch_size)
     observations = torch.cat(observation)
     observation_next = torch.cat(observation_next)
-    actions = index_action(torch.LongTensor(action))
-    rewards = torch.LongTensor(reward)
-    done = torch.FloatTensor(done)
+    actions = index_action(torch.LongTensor(action).to(device))
+    rewards = torch.LongTensor(reward).to(device)
+    done = torch.FloatTensor(done).to(device)
     q_values = agent(observations)
     p_q_values_next = agent(observation_next)
     q_values_next = target(observation_next)
@@ -105,10 +110,13 @@ def update_target():
 #Training
 steps = 0
 
+t_loss = []
+t_rewards = []
+
 for episode in tqdm(range(1,episodes+1),unit ='episode'):
     done = False
     observation = env.reset()
-    observation = torch.from_numpy(observation)
+    observation = torch.from_numpy(observation).to(device)
     observation = observation.permute((2, 0, 1))
     observation = observation.unsqueeze(0)
     while not done:
@@ -121,8 +129,9 @@ for episode in tqdm(range(1,episodes+1),unit ='episode'):
                 action = Actions[np.argmax(agent(observation))]
 
         observation_next, reward, done, info = env.step(action)
+        #modes = "human","rgb_array"
         image = env.render(mode="human")
-        observation_next = torch.from_numpy(observation_next)
+        observation_next = torch.from_numpy(observation_next).to(device)
         observation_next = observation_next.permute((2, 0, 1))
         observation_next = observation_next.unsqueeze(0)
         #ICM
@@ -133,7 +142,8 @@ for episode in tqdm(range(1,episodes+1),unit ='episode'):
         observation = observation_next
         steps += 1
         if steps % target_policy_update == 0:
-            update_target()
+            l = update_target()
+            t_loss.append(l)
 
 if __name__ == "__main__":
     pass
