@@ -2,11 +2,13 @@ import gym
 import gym_tool_use
 import numpy as np
 import random
+import torch
+import torch.nn as nn
+from torch.optim import Adam
 from tqdm import tqdm
 from collections import deque, namedtuple
-from dqn_agent import DQN
-import torch
-from torch.optim import Adam
+from ddqn_agent import DQN
+from ICModule import ICM
 #seed
 np.random.seed(7)
 random.seed(7)
@@ -20,6 +22,8 @@ else:
 lr = 0
 batch_size = 10
 gamma = 0.5
+beta = 0.1
+eta = 0.1
 epsilon_start = 0.8
 epsilon_end = 0.001
 e_decay = 0.99
@@ -60,7 +64,10 @@ def index_action(a):
         result.append(Actions.index(action))
     return torch.LongTensor(result)
 
-
+def one_hot_action(a):
+    result = np.zeros((1,16))
+    result[0,a] = 1
+    return result
 
 class ReplayMemory():
     """
@@ -85,7 +92,12 @@ target = DQN(12,12,16).to(device)
 target.load_state_dict(agent.state_dict())
 optimizer = Adam(agent.parameters())
 
-def update_target():
+#ICM
+icm = ICM(3,16)
+forward_loss = nn.MSELoss()
+inverse_loss = nn.CrossEntropyLoss()
+
+def update_target(inverse_loss,forward_loss):
     if len(r_memory.memory) < batch_size:
         return
     observation, action, reward, observation_next, done = r_memory.sample(batch_size)
@@ -101,7 +113,8 @@ def update_target():
     q_value_next = q_values_next.gather(1, torch.max(p_q_values_next, 1)[1].unsqueeze(1)).squeeze(1)
 
     expected_q_value = rewards + gamma * q_value_next * (1 - done)
-    loss = (q_values - expected_q_value.data).pow(2).mean()
+    icm_loss = (1-beta)*inverse_loss + beta*forward_loss
+    loss = ((q_values - expected_q_value.data).pow(2).mean()) + icm_loss
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
@@ -134,9 +147,17 @@ for episode in tqdm(range(1,episodes+1),unit ='episode'):
         observation_next = torch.from_numpy(observation_next).to(device)
         observation_next = observation_next.permute((2, 0, 1))
         observation_next = observation_next.unsqueeze(0)
+
         #ICM
-        #i_reward =
-        #reward += i_reward
+        #converting action space to a tensor
+        action_t = torch.from_numpy(one_hot_action(action)).type(torch.FloatTensor).to(device)
+        next_s_phi_hat,action_hat,next_s_phi = icm(observation, observation_next, action_t)
+        f_loss = forward_loss(next_s_phi_hat, next_s_phi)/2
+        target_action_i = Actions.index(action.tolist())
+        i_loss = inverse_loss(action_hat,torch.tensor(target_action_i).unsqueeze(0))
+        i_reward = eta * f_loss.detach()
+        reward += i_reward
+
         sars = SARS(observation, action, reward, observation_next, done)
         r_memory.update(sars)
         observation = observation_next
