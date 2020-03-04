@@ -4,11 +4,13 @@ import numpy as np
 import random
 import torch
 import torch.nn as nn
+import matplotlib.pyplot as plt
 from torch.optim import Adam
 from tqdm import tqdm
 from collections import deque, namedtuple
 from ddqn_agent import DQN
 from ICModule import ICM
+
 #seed
 np.random.seed(7)
 random.seed(7)
@@ -133,7 +135,6 @@ for episode in tqdm(range(1,episodes+1),unit ='episode'):
     observation = observation.permute((2, 0, 1))
     observation = observation.unsqueeze(0)
     while not done:
-        #print(observation.unsqueeze(0).shape)
         #with probablity epsilon select a random action
         if random.random() < epsilon_start:
             action = env.action_space.sample()
@@ -165,6 +166,11 @@ for episode in tqdm(range(1,episodes+1),unit ='episode'):
         if steps % target_policy_update == 0:
             l = update_target(i_loss,f_loss)
             t_loss.append(l)
+
+#Plotting loss
+plt.plot(len(t_loss),list(t_loss),c="c3",label="Training loss")
+plt.savefig("Training_loss.png")
+
 
 if __name__ == "__main__":
     pass
