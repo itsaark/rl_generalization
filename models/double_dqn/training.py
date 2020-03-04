@@ -33,7 +33,7 @@ episodes = 10
 
 #global variables
 SARS = namedtuple('Experience', ('state','action','reward','next_state','done'))
-env = gym.make("TrapTube-v0")
+env = gym.make("StructuralTrapTube-v0")
 
 North = 0
 South = 1
@@ -153,7 +153,7 @@ for episode in tqdm(range(1,episodes+1),unit ='episode'):
         action_t = torch.from_numpy(one_hot_action(action)).type(torch.FloatTensor).to(device)
         next_s_phi_hat,action_hat,next_s_phi = icm(observation, observation_next, action_t)
         f_loss = forward_loss(next_s_phi_hat, next_s_phi)/2
-        target_action_i = Actions.index(action.tolist())
+        target_action_i = Actions.index(list(action))
         i_loss = inverse_loss(action_hat,torch.tensor(target_action_i).unsqueeze(0))
         i_reward = eta * f_loss.detach()
         reward += i_reward
@@ -163,7 +163,7 @@ for episode in tqdm(range(1,episodes+1),unit ='episode'):
         observation = observation_next
         steps += 1
         if steps % target_policy_update == 0:
-            l = update_target()
+            l = update_target(i_loss,f_loss)
             t_loss.append(l)
 
 if __name__ == "__main__":
