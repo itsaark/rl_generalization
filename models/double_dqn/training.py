@@ -17,25 +17,32 @@ random.seed(7)
 
 if torch.cuda.is_available():
     device = torch.device("cuda:0")
+    print("GPU is running")
 else:
     device = torch.device("cpu")
 
 #hyperparameters
-lr = 0
-batch_size = 10
-gamma = 0.5
-beta = 0.1
-eta = 0.1
+lr = 1e-4
+batch_size = 128
+gamma = 0.9
+beta = 0.2
+eta = 0.2
 epsilon_start = 0.8
 epsilon_end = 0.001
 e_decay = 0.99
-target_policy_update = 5
+target_policy_update = 32
 memory_size = 10_000
-episodes = 10
+episodes = 10000
 
 #global variables
 SARS = namedtuple('Experience', ('state','action','reward','next_state','done'))
-env = gym.make("StructuralTrapTube-v0")
+
+#Different envs
+# "PerceptualTrapTube-v0", "StructuralTrapTube-v0", "SymbolicTrapTube-v0",
+#"PerceptualStructuralTrapTube-v0","PerceptualSymbolicTrapTube-v0",
+#"StructuralSymbolicTrapTube-v0","PerceptualStructuralSymbolicTrapTube-v0"#
+
+env = gym.make("TrapTube-v0")
 
 North = 0
 South = 1
@@ -95,7 +102,7 @@ target.load_state_dict(agent.state_dict())
 optimizer = Adam(agent.parameters())
 
 #ICM
-icm = ICM(3,16)
+icm = ICM(3,16).to(device)
 forward_loss = nn.MSELoss()
 inverse_loss = nn.CrossEntropyLoss()
 
@@ -105,8 +112,8 @@ def update_target(inverse_loss,forward_loss):
     observation, action, reward, observation_next, done = r_memory.sample(batch_size)
     observations = torch.cat(observation)
     observation_next = torch.cat(observation_next)
-    actions = index_action(torch.LongTensor(action).to(device))
-    rewards = torch.LongTensor(reward).to(device)
+    actions = index_action(torch.LongTensor(action).to(device)).to(device)
+    rewards = torch.FloatTensor(reward).to(device)
     done = torch.FloatTensor(done).to(device)
     q_values = agent(observations)
     p_q_values_next = agent(observation_next)
@@ -140,11 +147,11 @@ for episode in tqdm(range(1,episodes+1),unit ='episode'):
             action = env.action_space.sample()
         else:
             with torch.no_grad():
-                action = Actions[np.argmax(agent(observation))]
+                action = Actions[torch.argmax(agent(observation))]
 
         observation_next, reward, done, info = env.step(action)
         #modes = "human","rgb_array"
-        image = env.render(mode="human")
+        image = env.render(mode="rgb_array")
         observation_next = torch.from_numpy(observation_next).to(device)
         observation_next = observation_next.permute((2, 0, 1))
         observation_next = observation_next.unsqueeze(0)
@@ -155,7 +162,7 @@ for episode in tqdm(range(1,episodes+1),unit ='episode'):
         next_s_phi_hat,action_hat,next_s_phi = icm(observation, observation_next, action_t)
         f_loss = forward_loss(next_s_phi_hat, next_s_phi)/2
         target_action_i = Actions.index(list(action))
-        i_loss = inverse_loss(action_hat,torch.tensor(target_action_i).unsqueeze(0))
+        i_loss = inverse_loss(action_hat,torch.tensor(target_action_i).unsqueeze(0).to(device))
         i_reward = eta * f_loss.detach()
         reward += i_reward
 
