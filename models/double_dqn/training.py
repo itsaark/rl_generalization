@@ -107,6 +107,40 @@ icm = ICM(3,16).to(device)
 forward_loss = nn.MSELoss()
 inverse_loss = nn.CrossEntropyLoss()
 
+def run_test(model,test_env,episodes):
+    rewards = []
+    env = gym.make(test_env)
+    for i in range(episodes):
+        done = False
+        observation = env.reset()
+        observation = torch.from_numpy(observation).to(device)
+        observation = observation.permute((2, 0, 1))
+        observation = observation.unsqueeze(0)
+        t_reward = 0
+        while not done:
+            with torch.no_grad():
+                action = Actions[torch.argmax(model(observation))]
+            observation_next, reward, done, info = env.step(action)
+            #modes = "human","rgb_array"
+            image = env.render(mode="rgb_array")
+            observation_next = torch.from_numpy(observation_next).to(device)
+            observation_next = observation_next.permute((2, 0, 1))
+            observation_next = observation_next.unsqueeze(0)
+
+            #ICM
+            #converting action space to a tensor
+            action_t = torch.from_numpy(one_hot_action(action)).type(torch.FloatTensor).to(device)
+            next_s_phi_hat,action_hat,next_s_phi = icm(observation, observation_next, action_t)
+            f_loss = forward_loss(next_s_phi_hat, next_s_phi)/2
+            target_action_i = Actions.index(list(action))
+            i_loss = inverse_loss(action_hat,torch.tensor(target_action_i).unsqueeze(0).to(device))
+            i_reward = eta * f_loss.detach()
+            reward += i_reward
+            t_reward += reward
+            observation = observation_next
+        rewards.append(t_reward)
+    return rewards
+
 def update_target(inverse_loss,forward_loss):
     if len(r_memory.memory) < batch_size:
         return
@@ -136,6 +170,8 @@ steps = 0
 t_loss = []
 t_rewards = []
 
+tasks_solved = 0
+
 for episode in tqdm(range(1,episodes+1),unit ='episode'):
     done = False
     observation = env.reset()
@@ -152,6 +188,8 @@ for episode in tqdm(range(1,episodes+1),unit ='episode'):
                 action = Actions[torch.argmax(agent(observation))]
 
         observation_next, reward, done, info = env.step(action)
+        if reward == 1:
+            tasks_solved += 1
         #modes = "human","rgb_array"
         image = env.render(mode="rgb_array")
         observation_next = torch.from_numpy(observation_next).to(device)
@@ -176,7 +214,10 @@ for episode in tqdm(range(1,episodes+1),unit ='episode'):
             l = update_target(i_loss,f_loss)
             t_loss.append(l)
     t_rewards.append(t_reward)
-#Plotting loss
+
+
+
+#Loss plot
 t = plt.figure(1)
 plt.plot(range((len(t_loss))),list(t_loss),c="r",label="Training loss")
 plt.xlabel("Updates")
@@ -184,11 +225,14 @@ plt.ylabel("Loss")
 plt.legend()
 t.savefig("Training_loss.png")
 
+#Rewards plot
 r = plt.figure(2)
-plt.plot(range(episodes),t_rewards,c="b")
+plt.plot(range(len(t_rewards)),t_rewards,c="b")
 plt.xlabel("Episodes")
 plt.ylabel("Reward")
 r.savefig("Reward.png")
+
+Print(f"Solved {tasks_solved} in {episodes} episodes")
 
 if __name__ == "__main__":
     pass
