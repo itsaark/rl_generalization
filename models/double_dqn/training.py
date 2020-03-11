@@ -26,14 +26,14 @@ lr = 1e-4
 batch_size = 128
 gamma = 0.9
 beta = 0.2
-eta = 0.2
+eta = 0.002
 epsilon_start = 0.8
 epsilon_end = 0.001
 e_decay = 0.99
 weight_decay = 0.01
 target_policy_update = 32
 memory_size = 10_000
-episodes = 10000
+episodes = 10_000
 
 #global variables
 SARS = namedtuple('Experience', ('state','action','reward','next_state','done'))
@@ -142,6 +142,7 @@ for episode in tqdm(range(1,episodes+1),unit ='episode'):
     observation = torch.from_numpy(observation).to(device)
     observation = observation.permute((2, 0, 1))
     observation = observation.unsqueeze(0)
+    t_reward = 0
     while not done:
         #with probablity epsilon select a random action
         if random.random() < epsilon_start:
@@ -166,7 +167,7 @@ for episode in tqdm(range(1,episodes+1),unit ='episode'):
         i_loss = inverse_loss(action_hat,torch.tensor(target_action_i).unsqueeze(0).to(device))
         i_reward = eta * f_loss.detach()
         reward += i_reward
-
+        t_reward += reward
         sars = SARS(observation, action, reward, observation_next, done)
         r_memory.update(sars)
         observation = observation_next
@@ -174,14 +175,20 @@ for episode in tqdm(range(1,episodes+1),unit ='episode'):
         if steps % target_policy_update == 0:
             l = update_target(i_loss,f_loss)
             t_loss.append(l)
-
+    t_rewards.append(t_reward)
 #Plotting loss
+t = plt.figure(1)
 plt.plot(range((len(t_loss))),list(t_loss),c="r",label="Training loss")
 plt.xlabel("Updates")
 plt.ylabel("Loss")
 plt.legend()
-plt.savefig("Training_loss.png")
+t.savefig("Training_loss.png")
 
+r = plt.figure(2)
+plt.plot(range(episodes),t_rewards,c="b")
+plt.xlabel("Episodes")
+plt.ylabel("Reward")
+r.savefig("Reward.png")
 
 if __name__ == "__main__":
     pass
