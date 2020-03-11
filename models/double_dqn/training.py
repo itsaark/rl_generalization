@@ -30,6 +30,7 @@ eta = 0.2
 epsilon_start = 0.8
 epsilon_end = 0.001
 e_decay = 0.99
+weight_decay = 0.01
 target_policy_update = 32
 memory_size = 10_000
 episodes = 10000
@@ -99,7 +100,7 @@ r_memory = ReplayMemory(memory_size)
 agent = DQN(12,12,16).to(device)
 target = DQN(12,12,16).to(device)
 target.load_state_dict(agent.state_dict())
-optimizer = Adam(agent.parameters())
+optimizer = Adam(agent.parameters(),lr=lr,weight_decay=weight_decay)
 
 #ICM
 icm = ICM(3,16).to(device)
@@ -175,7 +176,10 @@ for episode in tqdm(range(1,episodes+1),unit ='episode'):
             t_loss.append(l)
 
 #Plotting loss
-plt.plot(len(t_loss),list(t_loss),c="c3",label="Training loss")
+plt.plot(range((len(t_loss))),list(t_loss),c="r",label="Training loss")
+plt.xlabel("Updates")
+plt.ylabel("Loss")
+plt.legend()
 plt.savefig("Training_loss.png")
 
 
