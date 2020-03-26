@@ -27,13 +27,12 @@ batch_size = 128
 gamma = 0.9
 beta = 0.2
 eta = 0.002
-epsilon_start = 0.8
-epsilon_end = 0.001
-e_decay = 0.99
+epsilon = 0.99
+epsilon_end = 0.0001
 weight_decay = 0.01
 target_policy_update = 32
 memory_size = 10_000
-episodes = 10_000
+episodes = 150_000
 
 #global variables
 SARS = namedtuple('Experience', ('state','action','reward','next_state','done'))
@@ -181,7 +180,7 @@ for episode in tqdm(range(1,episodes+1),unit ='episode'):
     t_reward = 0
     while not done:
         #with probablity epsilon select a random action
-        if random.random() < epsilon_start:
+        if random.random() < epsilon:
             action = env.action_space.sample()
         else:
             with torch.no_grad():
@@ -190,6 +189,7 @@ for episode in tqdm(range(1,episodes+1),unit ='episode'):
         observation_next, reward, done, info = env.step(action)
         if reward == 1:
             tasks_solved += 1
+            print("solved a task")
         #modes = "human","rgb_array"
         image = env.render(mode="rgb_array")
         observation_next = torch.from_numpy(observation_next).to(device)
@@ -214,8 +214,8 @@ for episode in tqdm(range(1,episodes+1),unit ='episode'):
             l = update_target(i_loss,f_loss)
             t_loss.append(l)
     t_rewards.append(t_reward)
-
-
+    if epsilon > epsilon_end:
+        epsilon = np.exp(-(1/episodes)*episode*10)
 
 #Loss plot
 t = plt.figure(1)
@@ -232,7 +232,7 @@ plt.xlabel("Episodes")
 plt.ylabel("Reward")
 r.savefig("Reward.png")
 
-Print(f"Solved {tasks_solved} in {episodes} episodes")
+print(f"Solved {tasks_solved} in {episodes} episodes")
 
 if __name__ == "__main__":
     pass
