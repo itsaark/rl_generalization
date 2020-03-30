@@ -24,6 +24,7 @@ else:
 #hyperparameters
 lr = 1e-4
 batch_size = 128
+batch_gd = 32
 gamma = 0.9
 beta = 0.2
 eta = 0.002
@@ -32,7 +33,7 @@ epsilon_end = 0.0001
 weight_decay = 0.01
 target_policy_update = 32
 memory_size = 10_000
-episodes = 150_000
+episodes = 150
 
 #global variables
 SARS = namedtuple('Experience', ('state','action','reward','next_state','done'))
@@ -140,7 +141,7 @@ def run_test(model,test_env,episodes):
         rewards.append(t_reward)
     return rewards
 
-def update_target(inverse_loss,forward_loss):
+def optimize_agent(inverse_loss,forward_loss):
     if len(r_memory.memory) < batch_size:
         return
     observation, action, reward, observation_next, done = r_memory.sample(batch_size)
@@ -163,12 +164,33 @@ def update_target(inverse_loss,forward_loss):
     optimizer.step()
     return loss
 
+def test(agent):
+    eval_env = gym.make("PerceptualStructuralSymbolicTrapTube-v0")
+    done = False
+    observation = eval_env.reset()
+    observation = torch.from_numpy(observation).to(device)
+    observation = observation.permute((2, 0, 1))
+    observation = observation.unsqueeze(0)
+    while not done:
+        with torch.no_grad():
+            action = Actions[torch.argmax(agent(observation))]
+            observation_next, reward, done, _ = eval_env.step(action)
+        if reward == 1:
+            print("solved a task during eval")
+            break
+        image = eval_env.render(mode="rgb_array")
+        observation_next = torch.from_numpy(observation_next).to(device)
+        observation_next = observation_next.permute((2, 0, 1))
+        observation_next = observation_next.unsqueeze(0)
+        observation = observation_next
+    return reward
+
 #Training
 steps = 0
 
 t_loss = []
 t_rewards = []
-
+eval_rewards = []
 tasks_solved = 0
 
 for episode in tqdm(range(1,episodes+1),unit ='episode'):
@@ -210,12 +232,25 @@ for episode in tqdm(range(1,episodes+1),unit ='episode'):
         r_memory.update(sars)
         observation = observation_next
         steps += 1
-        if steps % target_policy_update == 0:
-            l = update_target(i_loss,f_loss)
+        if steps % batch_gd == 0:
+            l = optimize_agent(i_loss,f_loss)
             t_loss.append(l)
+    if episode % target_policy_update == 0:
+        target.load_state_dict(agent.state_dict())
+
     t_rewards.append(t_reward)
+    eval_rewards.append(test(agent))
+
+    #Baseline for num of episodes needed to solve a task
+    if t_reward > 1:
+        break
     if epsilon > epsilon_end:
         epsilon = np.exp(-(1/episodes)*episode*10)
+
+#Saving to files
+np.save("loss",t_loss)
+np.save("training_rewards",t_rewards)
+np.save("eval_rewards",eval_rewards)
 
 #Loss plot
 t = plt.figure(1)
@@ -232,7 +267,7 @@ plt.xlabel("Episodes")
 plt.ylabel("Reward")
 r.savefig("Reward.png")
 
-print(f"Solved {tasks_solved} in {episodes} episodes")
+print(f"Solved {tasks_solved} tasks in {episodes} episodes")
 
 if __name__ == "__main__":
     pass
