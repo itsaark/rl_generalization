@@ -22,7 +22,7 @@ else:
     device = torch.device("cpu")
 
 #hyperparameters
-lr = 1e-4
+lr = 1e-2
 batch_size = 128
 batch_gd = 32
 gamma = 0.9
@@ -32,11 +32,11 @@ epsilon = 0.99
 epsilon_end = 0.0001
 weight_decay = 0.01
 target_policy_update = 32
-memory_size = 10_000
+memory_size = 20_000
 episodes = 150
 
 #global variables
-SARS = namedtuple('Experience', ('state','action','reward','next_state','done'))
+SARS = namedtuple('Experience', ('state','action','reward','next_state','done','inverse_loss', 'forward_loss'))
 
 #Different envs
 # "PerceptualTrapTube-v0", "StructuralTrapTube-v0", "SymbolicTrapTube-v0",
@@ -100,12 +100,14 @@ r_memory = ReplayMemory(memory_size)
 agent = DQN(12,12,16).to(device)
 target = DQN(12,12,16).to(device)
 target.load_state_dict(agent.state_dict())
-optimizer = Adam(agent.parameters(),lr=lr,weight_decay=weight_decay)
+
+
 
 #ICM
 icm = ICM(3,16).to(device)
 forward_loss = nn.MSELoss()
 inverse_loss = nn.CrossEntropyLoss()
+optimizer = Adam(list(agent.parameters()) + list(icm.parameters()),lr=lr,weight_decay=weight_decay)
 
 def run_test(model,test_env,episodes):
     rewards = []
@@ -141,14 +143,16 @@ def run_test(model,test_env,episodes):
         rewards.append(t_reward)
     return rewards
 
-def optimize_agent(inverse_loss,forward_loss):
+def optimize_agent():
     if len(r_memory.memory) < batch_size:
         return
-    observation, action, reward, observation_next, done = r_memory.sample(batch_size)
+    observation, action, reward, observation_next, done, inverse_loss, forward_loss = r_memory.sample(batch_size)
     observations = torch.cat(observation)
     observation_next = torch.cat(observation_next)
     actions = index_action(torch.LongTensor(action).to(device)).to(device)
     rewards = torch.FloatTensor(reward).to(device)
+    inverse_loss = torch.FloatTensor(inverse_loss).to(device)
+    forward_loss = torch.FloatTensor(forward_loss).to(device)
     done = torch.FloatTensor(done).to(device)
     q_values = agent(observations)
     p_q_values_next = agent(observation_next)
@@ -158,7 +162,7 @@ def optimize_agent(inverse_loss,forward_loss):
 
     expected_q_value = rewards + gamma * q_value_next * (1 - done)
     icm_loss = (1-beta)*inverse_loss + beta*forward_loss
-    loss = ((q_values - expected_q_value.data).pow(2).mean()) + icm_loss
+    loss = ((q_values - expected_q_value.data).pow(2).mean()) + icm_loss.mean()
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
@@ -213,7 +217,7 @@ for episode in tqdm(range(1,episodes+1),unit ='episode'):
             tasks_solved += 1
             print("solved a task")
         #modes = "human","rgb_array"
-        image = env.render(mode="rgb_array")
+        #image = env.render(mode="rgb_array")
         observation_next = torch.from_numpy(observation_next).to(device)
         observation_next = observation_next.permute((2, 0, 1))
         observation_next = observation_next.unsqueeze(0)
@@ -228,18 +232,18 @@ for episode in tqdm(range(1,episodes+1),unit ='episode'):
         i_reward = eta * f_loss.detach()
         reward += i_reward
         t_reward += reward
-        sars = SARS(observation, action, reward, observation_next, done)
+        sars = SARS(observation, action, reward, observation_next, done, i_loss, f_loss)
         r_memory.update(sars)
         observation = observation_next
         steps += 1
-        if steps % batch_gd == 0:
-            l = optimize_agent(i_loss,f_loss)
-            t_loss.append(l)
+        if steps % batch_gd == 0 and steps > batch_size :
+            l = optimize_agent()
+            t_loss.append(l.item())
     if episode % target_policy_update == 0:
         target.load_state_dict(agent.state_dict())
 
-    t_rewards.append(t_reward)
-    eval_rewards.append(test(agent))
+    t_rewards.append(t_reward.item())
+    #eval_rewards.append(test(agent))
 
     #Baseline for num of episodes needed to solve a task
     if t_reward > 1:
@@ -248,6 +252,7 @@ for episode in tqdm(range(1,episodes+1),unit ='episode'):
         epsilon = np.exp(-(1/episodes)*episode*10)
 
 #Saving to files
+print(t_loss[:10])
 np.save("loss",t_loss)
 np.save("training_rewards",t_rewards)
 np.save("eval_rewards",eval_rewards)
