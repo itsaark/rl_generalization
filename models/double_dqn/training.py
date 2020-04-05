@@ -43,7 +43,7 @@ SARS = namedtuple('Experience', ('state','action','reward','next_state','done','
 #"PerceptualStructuralTrapTube-v0","PerceptualSymbolicTrapTube-v0",
 #"StructuralSymbolicTrapTube-v0","PerceptualStructuralSymbolicTrapTube-v0"#
 
-env = gym.make("TrapTube-v0")
+env = gym.make("PerceptualStructuralSymbolicTrapTube-v0")
 
 North = 0
 South = 1
@@ -169,7 +169,7 @@ def optimize_agent():
     return loss
 
 def test(agent):
-    eval_env = gym.make("PerceptualStructuralSymbolicTrapTube-v0")
+    eval_env = gym.make("PerceptualTrapTube-v0")
     done = False
     observation = eval_env.reset()
     observation = torch.from_numpy(observation).to(device)
@@ -179,9 +179,6 @@ def test(agent):
         with torch.no_grad():
             action = Actions[torch.argmax(agent(observation))]
             observation_next, reward, done, _ = eval_env.step(action)
-        if reward == 1:
-            print("solved a task during eval")
-            break
         image = eval_env.render(mode="rgb_array")
         observation_next = torch.from_numpy(observation_next).to(device)
         observation_next = observation_next.permute((2, 0, 1))
@@ -194,8 +191,10 @@ steps = 0
 
 t_loss = []
 t_rewards = []
-eval_rewards = []
-tasks_solved = 0
+eval_tasks_solved = []
+training_tasks_solved = []
+e_tasks_solved = 0
+t_tasks_solved = 0
 
 for episode in tqdm(range(1,episodes+1),unit ='episode'):
     done = False
@@ -214,8 +213,7 @@ for episode in tqdm(range(1,episodes+1),unit ='episode'):
 
         observation_next, reward, done, info = env.step(action)
         if reward == 1:
-            tasks_solved += 1
-            print("solved a task")
+            t_tasks_solved += 1
         #modes = "human","rgb_array"
         #image = env.render(mode="rgb_array")
         observation_next = torch.from_numpy(observation_next).to(device)
@@ -243,19 +241,22 @@ for episode in tqdm(range(1,episodes+1),unit ='episode'):
         target.load_state_dict(agent.state_dict())
 
     t_rewards.append(t_reward.item())
-    #eval_rewards.append(test(agent))
-
+    e_tasks_solved += test(agent)
+    eval_tasks_solved.append(e_tasks_solved)
+    training_tasks_solved.append(t_tasks_solved)
     #Baseline for num of episodes needed to solve a task
-    if t_reward > 1:
-        break
+    #if t_reward > 1:
+        #break
     if epsilon > epsilon_end:
         epsilon = np.exp(-(1/episodes)*episode*10)
+    if episode % 10000 == 0:
+        print(f"solved {t_tasks_solved} and {e_tasks_solved} during training, eval resp.")
 
 #Saving to files
-print(t_loss[:10])
 np.save("loss",t_loss)
 np.save("training_rewards",t_rewards)
-np.save("eval_rewards",eval_rewards)
+np.save("e_tasks_solved",e_tasks_solved)
+np.save("t_tasks_solved",t_tasks_solved)
 
 #Loss plot
 t = plt.figure(1)
@@ -271,8 +272,6 @@ plt.plot(range(len(t_rewards)),t_rewards,c="b")
 plt.xlabel("Episodes")
 plt.ylabel("Reward")
 r.savefig("Reward.png")
-
-print(f"Solved {tasks_solved} tasks in {episodes} episodes")
 
 if __name__ == "__main__":
     pass
